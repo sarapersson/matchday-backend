@@ -123,11 +123,10 @@ API-kontraktet finns i [`docs/openapi.yaml`](docs/openapi.yaml) och följer Open
 - Historiken visar författarnas publika användarnamn, men inte interna användar-ID:n eller
   e-postadresser. Sparade meddelanden ligger kvar när en medlem lämnar.
 
-Den lokala Basic Auth-profilen autentiserar administrativa importanrop men kopplar
-inte inloggningen till ett användar-ID i domänen. Circle-anrop kräver därför auth-modulens framtida
-`CurrentUser`-adapter. Meddelandeanrop kräver dessutom en `UserDirectory`-adapter för publika
-användarnamn. Backendens automatiserade tester använder avgränsade testimplementationer så att
-arbetet med circles och meddelanden inte blockeras av auth-utvecklingen.
+Produktionskonfigurationen är fail-closed tills auth-modulen tillhandahåller `CurrentUser` och
+`UserDirectory`. För lokal demonstration kopplar profilen `local` Basic Auth-användaren till ett
+uttryckligen konfigurerat användar-ID och publikt användarnamn. Demo-adaptern är endast aktiv med
+den lokala profilen och servern är då bunden till `127.0.0.1`.
 
 ## Manuell matchimport lokalt
 
@@ -139,6 +138,8 @@ inloggningsuppgifter:
 SPRING_PROFILES_ACTIVE=local \
 MATCHDAY_LOCAL_USERNAME=local-operator \
 MATCHDAY_LOCAL_PASSWORD=choose-a-local-password \
+MATCHDAY_LOCAL_USER_ID=f0e4e8a2-1767-4d50-9b08-a927ef15b8d1 \
+MATCHDAY_LOCAL_PUBLIC_USERNAME=sara \
 ./mvnw spring-boot:run
 ```
 
@@ -169,6 +170,95 @@ duplicerade externa match-ID:n och fler än åtta matcher i samma omgång.
 Integrationen använder TheSportsDB v1 och standardnyckeln `123`. En annan nyckel anges med
 miljövariabeln `THESPORTSDB_API_KEY`.
 
+## Manuell demonstration av circles och meddelanden
+
+Starta backend med profilen och miljövariablerna ovan och importera matcher. Hämta därefter ett
+match-ID:
+
+```bash
+MATCH_ID=$(curl --fail-with-body --silent \
+  http://127.0.0.1:8080/api/v1/matches | jq -r '.[0].id')
+```
+
+Använd samma Basic Auth-uppgifter i Postman eller `curl` för att skapa en circle:
+
+```bash
+curl --fail-with-body \
+  --user local-operator \
+  --request POST \
+  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle
+```
+
+Hämta circle-ID:t som behövs för meddelandeanropen:
+
+```bash
+CIRCLE_ID=$(curl --fail-with-body --silent \
+  --user local-operator \
+  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle | jq -r '.id')
+```
+
+Skapa och läs meddelanden med:
+
+```bash
+curl --fail-with-body \
+  --user local-operator \
+  --header 'Content-Type: application/json' \
+  --data '{"content":"Hej från Postman"}' \
+  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
+
+curl --fail-with-body \
+  --user local-operator \
+  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
+```
+
+Lämna circle, verifiera att ett nytt meddelande nekas och anslut sedan igen:
+
+```bash
+curl --fail-with-body \
+  --user local-operator \
+  --request DELETE \
+  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle/membership
+
+curl --include \
+  --user local-operator \
+  --header 'Content-Type: application/json' \
+  --data '{"content":"Detta ska nekas"}' \
+  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
+
+curl --fail-with-body \
+  --user local-operator \
+  --request PUT \
+  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle/membership
+
+curl --fail-with-body \
+  --user local-operator \
+  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
+```
+
+POST-anropet efter att användaren har lämnat gruppen ska ge `403 Forbidden`. Det avslutande
+GET-anropet visar att meddelandehistoriken finns kvar efter återanslutningen.
+
+Den lokala adaptern ersätter inte den slutliga autentiseringsintegrationen och ska inte aktiveras
+i en delad eller produktionslik miljö.
+
+### Postman
+
+Importera följande två filer i Postman:
+
+- [`docs/postman/matchday-local-demo.postman_collection.json`](docs/postman/matchday-local-demo.postman_collection.json)
+- [`docs/postman/matchday-local-demo.postman_environment.json`](docs/postman/matchday-local-demo.postman_environment.json)
+
+Välj miljön `Matchday Local Demo` och ange samma värde som används för
+`MATCHDAY_LOCAL_PASSWORD` som **Current value** för variabeln `password`. Öppna samlingen, välj
+**Run collection** och kontrollera att miljön `Matchday Local Demo` är vald innan körningen
+startas.
+
+Postman-samlingen kör 12 anrop i ordning. Den väljer en importerad match, skapar eller återanvänder
+dess circle och verifierar skapande och läsning av meddelanden, medlemskapskontroll,
+återanslutning och nekad åtkomst. En lyckad körning visar att samtliga kontroller är godkända.
+Postman-flödet är en reserv för den manuella demonstrationen och ingår inte i projektets
+automatiserade CI-kontroller.
+
 ## Verifiering
 
 Kör backendens lokala kvalitetskontroller med:
@@ -194,4 +284,5 @@ npx --yes @redocly/cli@2.45.0 lint docs/openapi.yaml
 
 - [OpenAPI-kontrakt](docs/openapi.yaml)
 - [Backend CI och säkerhetskontroller](docs/BACKEND_CI.md)
+- [Backendens projektberättelse](docs/BACKEND_PROJECT_STORY.md)
 - [Frontend](frontend/README.md)

@@ -1,0 +1,541 @@
+{
+  "info": {
+    "_postman_id": "77302a77-e00e-4aa0-ae7e-84e8d91ce6e9",
+    "name": "Matchday Local Demo",
+    "description": "Exercises the local circle and message demo flow. Requires the backend to run with the local profile and at least one imported match.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      {
+        "key": "username",
+        "value": "{{username}}",
+        "type": "string"
+      },
+      {
+        "key": "password",
+        "value": "{{password}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01 Matches",
+      "item": [
+        {
+          "name": "List matches and select one",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns at least one match', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const matches = pm.response.json();",
+                  "  pm.expect(matches).to.be.an('array').that.is.not.empty;",
+                  "  pm.environment.set('matchId', matches[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Circle",
+      "item": [
+        {
+          "name": "Create circle if absent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('creates the circle or reports that it already exists', function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "  const circle = pm.response.json();",
+                  "  pm.environment.set('circleId', circle.id);",
+                  "  pm.test('creator receives an active membership', function () {",
+                  "    pm.expect(circle.membershipActive).to.eql(true);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read circle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns the selected match circle', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const circle = pm.response.json();",
+                  "  pm.expect(circle.matchId).to.eql(pm.environment.get('matchId'));",
+                  "  pm.expect(circle).not.to.have.property('createdByUserId');",
+                  "  pm.environment.set('circleId', circle.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Join circle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('join is idempotent', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle/membership",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle",
+                "membership"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Messages",
+      "item": [
+        {
+          "name": "Create message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('creates a member-authored message', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const message = pm.response.json();",
+                  "  pm.expect(message.circleId).to.eql(pm.environment.get('circleId'));",
+                  "  pm.expect(message.content).to.eql(pm.environment.get('messageContent'));",
+                  "  pm.expect(message.authorUsername).to.eql(pm.environment.get('publicUsername'));",
+                  "  pm.expect(message).not.to.have.property('authorUserId');",
+                  "  pm.environment.set('messageId', message.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"{{messageContent}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/circles/{{circleId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "circles",
+                "{{circleId}}",
+                "messages"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read message history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('history contains the created message', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const history = pm.response.json();",
+                  "  pm.expect(history.messages).to.be.an('array');",
+                  "  pm.expect(history.messages.some(function (message) {",
+                  "    return message.id === pm.environment.get('messageId');",
+                  "  })).to.eql(true);",
+                  "  pm.expect(history.page).to.eql(0);",
+                  "  pm.expect(history.size).to.eql(50);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/circles/{{circleId}}/messages?page=0&size=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "circles",
+                "{{circleId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Membership enforcement",
+      "item": [
+        {
+          "name": "Leave circle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('leaves the circle', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle/membership",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle",
+                "membership"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject message from former member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('requires an active membership', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const problem = pm.response.json();",
+                  "  pm.expect(problem.type).to.eql('urn:matchday:problem:active-circle-membership-required');",
+                  "  pm.expect(problem).not.to.have.property('trace');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Detta ska nekas\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/circles/{{circleId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "circles",
+                "{{circleId}}",
+                "messages"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject history from former member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('protects message history', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  pm.expect(pm.response.json().type).to.eql('urn:matchday:problem:active-circle-membership-required');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/circles/{{circleId}}/messages?page=0&size=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "circles",
+                "{{circleId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rejoin circle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('membership can be reactivated', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle/membership",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle",
+                "membership"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read retained history after rejoining",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('history remains after leaving and rejoining', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const history = pm.response.json();",
+                  "  pm.expect(history.messages.some(function (message) {",
+                  "    return message.id === pm.environment.get('messageId');",
+                  "  })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/circles/{{circleId}}/messages?page=0&size=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "circles",
+                "{{circleId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject missing credentials",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('authentication is required', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/matches/{{matchId}}/circle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "matches",
+                "{{matchId}}",
+                "circle"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
