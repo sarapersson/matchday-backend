@@ -36,12 +36,16 @@ matchday:
       maximum-retry-delay: 120s
 ---
 server:
-  address: ${MATCHDAY_LOCAL_SERVER_ADDRESS:127.0.0.1}
+  address: 127.0.0.1
 spring:
   config:
     activate:
       on-profile: local
 matchday:
+  identity:
+    local:
+      user-id: ${MATCHDAY_LOCAL_USER_ID}
+      username: ${MATCHDAY_LOCAL_PUBLIC_USERNAME}
   security:
     local:
       username: ${MATCHDAY_LOCAL_USERNAME}
