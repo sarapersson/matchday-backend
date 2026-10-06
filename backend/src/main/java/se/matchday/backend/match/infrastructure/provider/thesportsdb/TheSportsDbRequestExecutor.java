@@ -36,6 +36,7 @@ final class TheSportsDbRequestExecutor {
     this.sleeper = sleeper;
   }
 
+  // Serialize request starts so concurrent callers share the same provider rate-limit window.
   synchronized <T extends @Nullable Object> T execute(Supplier<T> request) {
     int retries = 0;
     while (true) {

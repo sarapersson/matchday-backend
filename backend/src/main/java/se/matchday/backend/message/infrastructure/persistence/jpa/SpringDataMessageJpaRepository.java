@@ -15,6 +15,7 @@ interface SpringDataMessageJpaRepository extends JpaRepository<MessageJpaEntity,
   Slice<MessageJpaEntity> findByCircleIdOrderByCreatedAtDescIdDesc(
       UUID circleId, Pageable pageable);
 
+  // Keep the membership stable while message history is authorized and read in one transaction.
   @NativeQuery(
       """
       SELECT membership.user_id
@@ -26,6 +27,7 @@ interface SpringDataMessageJpaRepository extends JpaRepository<MessageJpaEntity,
   Optional<UUID> lockActiveMembership(
       @Param("circleId") UUID circleId, @Param("userId") UUID userId);
 
+  // Authorize and insert atomically relative to a concurrent request that removes the membership.
   @Modifying
   @NativeQuery(
       """

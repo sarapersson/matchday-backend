@@ -36,6 +36,7 @@ class JpaCircleRepositoryAdapter implements CircleRepository {
 
     CircleJpaEntity circle = new CircleJpaEntity(matchId, creatorUserId, createdAt);
     try {
+      // Flush inside this block so the database constraint can be translated to a domain conflict.
       circleRepository.saveAndFlush(circle);
     } catch (DataIntegrityViolationException exception) {
       if (causedByConstraint(exception, MATCH_ID_UNIQUE_CONSTRAINT)) {
