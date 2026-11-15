@@ -122,10 +122,9 @@ paths:
         - Circles
       summary: Create a match circle
       description: >-
-        Creates the single discussion circle for the match and adds the authenticated creator as
-        its first active member. The declared Basic Auth scheme applies to the documented local
-        server; the production authentication mechanism will be supplied by the authentication
-        integration and is intentionally not fixed by this contract yet.
+        Creates the single discussion circle for the match and adds the authenticated creator as its
+        first active member. The declared Basic Auth scheme applies to the documented local server;
+        this contract does not define a production authentication mechanism.
       operationId: createMatchCircle
       security:
         - localBasicAuth: []
@@ -215,9 +214,8 @@ paths:
       description: >-
         Activates the authenticated user's membership in the match circle. The operation is
         idempotent and returns the same successful response when the membership is already active.
-        The declared Basic Auth scheme applies to the documented local server; the production
-        authentication mechanism will be supplied by the authentication integration and is
-        intentionally not fixed by this contract yet.
+        The declared Basic Auth scheme applies to the documented local server; this contract does
+        not define a production authentication mechanism.
       operationId: joinMatchCircle
       security:
         - localBasicAuth: []
@@ -291,8 +289,7 @@ paths:
         Deactivates the authenticated user's membership in the match circle without deleting the
         circle. The operation is idempotent and returns the same successful response when the
         membership is already inactive. The declared Basic Auth scheme applies to the documented
-        local server; the production authentication mechanism will be supplied by the
-        authentication integration and is intentionally not fixed by this contract yet.
+        local server; this contract does not define a production authentication mechanism.
       operationId: leaveMatchCircle
       security:
         - localBasicAuth: []
@@ -375,9 +372,8 @@ paths:
         Returns message history for an authenticated user with an active membership in the circle.
         Messages are ordered by creation time and message ID, both descending. Responses expose
         public usernames, but not internal user IDs or email addresses. The declared Basic Auth
-        scheme applies to the documented local server; the production authentication mechanism
-        will be supplied by the authentication integration and is intentionally not fixed by this
-        contract yet.
+        scheme applies to the documented local server; this contract does not define a production
+        authentication mechanism.
       operationId: getCircleMessageHistory
       security:
         - localBasicAuth: []
@@ -490,11 +486,10 @@ paths:
         - Messages
       summary: Create a circle message
       description: >-
-        Creates a message for the authenticated user when that user has an active membership in
-        the circle. The response exposes the author's public username, but not an internal user ID
-        or email address. The declared Basic Auth scheme applies to the documented local server;
-        the production authentication mechanism will be supplied by the authentication integration
-        and is intentionally not fixed by this contract yet.
+        Creates a message for the authenticated user when that user has an active membership in the
+        circle. The response exposes the author's public username, but not an internal user ID or
+        email address. The declared Basic Auth scheme applies to the documented local server; this
+        contract does not define a production authentication mechanism.
       operationId: createCircleMessage
       security:
         - localBasicAuth: []
@@ -689,9 +684,9 @@ components:
       type: http
       scheme: basic
       description: >-
-        Basic Auth supplied by the local profile. Circle and message operations additionally
-        require an authentication adapter that resolves the credentials to a stable application
-        user ID.
+        Basic Auth, available only under the local profile, which maps the single configured
+        account to an application user ID and public username. In other profiles no identity
+        adapter is configured, and circle and message operations are rejected.
   schemas:
     Match:
       type: object

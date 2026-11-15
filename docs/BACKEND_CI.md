@@ -1,60 +1,58 @@
-# Backend CI och säkerhetskontroller
+# Backend CI and security checks
 
-Detta dokument beskriver backendens automatiserade kvalitets- och säkerhetskontroller. Målgruppen
-är utvecklare som arbetar i kodbasen samt granskare som behöver bedöma hur ändringar verifieras
-innan de integreras i `main`.
+This document describes the backend's automated quality and security checks. It is written for
+developers working in the codebase and for reviewers who need to understand how changes are
+verified before they are integrated into `main`.
 
-## Översikt
+## Overview
 
-Backend använder två separata GitHub Actions-arbetsflöden:
+The backend uses two separate GitHub Actions workflows:
 
-| Arbetsflöde | Syfte | Utlösare |
+| Workflow | Purpose | Triggers |
 | --- | --- | --- |
-| `Backend CI` | Bygg, tester, kodformat, testtäckning och OpenAPI-kontrakt | Pull request mot `main`, push till `main`, manuell körning |
-| `Backend Security` | Sårbarhetsanalys av Maven-beroenden | Pull request mot `main`, push till `main`, måndagar 06.00 UTC, manuell körning |
+| `Backend CI` | Build, tests, formatting, coverage and the OpenAPI contract | Pull request to `main`, push to `main`, manual run |
+| `Backend Security` | Vulnerability analysis of Maven dependencies | Pull request to `main`, push to `main`, Mondays 06:00 UTC, manual run |
 
-Sårbarhetsanalysen är separerad från det ordinarie bygget eftersom den kräver åtkomst till NVD och
-en API-nyckel. Resultaten visas därför som separata status checks för kodverifiering,
-API-kontrakt och beroenden.
+The vulnerability analysis runs in its own workflow because it needs access to the NVD and an API
+key.
 
 ## Backend CI
 
-Konfiguration: [`.github/workflows/backend.yml`](../.github/workflows/backend.yml)
+Configuration: [`.github/workflows/backend.yml`](../.github/workflows/backend.yml)
 
-Arbetsflödet innehåller två oberoende jobb. Ett fel i API-kontraktet kan därför skiljas från ett
-kompilerings- eller testfel.
+The workflow has two independent jobs, so a broken API contract can be told apart from a
+compilation or test failure.
 
 ### Backend verification
 
-Jobbet använder Temurin JDK 25 och kör följande kommando från `backend/`:
+The job uses Temurin JDK 25 and runs the following command from `backend/`:
 
 ```bash
 ./mvnw --batch-mode --no-transfer-progress verify
 ```
 
-Verifieringen omfattar:
+Verification covers:
 
-- kompilering och paketering
-- enhets- och integrationstester
-- kodformat med Spotless och Google Java Format
-- JaCoCo-rapport och en kvalitetsgrind på minst 70 procent linjetäckning
-- Testcontainers-baserade integrationstester mot PostgreSQL
+- compilation and packaging
+- unit tests and Testcontainers-based integration tests against PostgreSQL
+- formatting with Spotless and Google Java Format
+- a JaCoCo report and a quality gate of at least 70% line coverage
 
-Följande rapporter laddas upp som GitHub Actions-artifacts även när jobbet misslyckas:
+The following reports are uploaded as GitHub Actions artifacts, even when the job fails:
 
 - `backend/target/surefire-reports/`
 - `backend/target/site/jacoco/`
 
-Rapporterna behålls i sju dagar.
+Reports are kept for seven days.
 
 ### OpenAPI lint
 
-Jobbet validerar [`docs/openapi.yaml`](openapi.yaml) med Redocly CLI. Kontrollen omfattar giltig
-OpenAPI-struktur, schema-referenser och Redoclys rekommenderade kontraktsregler. Redocly används
-endast i utvecklings- och CI-flödet och påverkar inte Spring Boot-applikationens runtime-beroenden.
+The job lints [`docs/openapi.yaml`](openapi.yaml) with Redocly CLI, checking the OpenAPI
+structure, schema references and Redocly's recommended rule set. Redocly is used only in the
+development and CI flow and does not affect the Spring Boot application's runtime dependencies.
 
-Arbetsflödet använder Node.js 24 och en exakt version av Redocly CLI för att begränsa variationen
-mellan körningar. Den lokala motsvarigheten körs från projektets rotkatalog:
+The workflow uses Node.js 24 and an exact Redocly CLI version to limit variation between runs.
+The local equivalent is run from the repository root:
 
 ```bash
 REDOCLY_TELEMETRY=off \
@@ -64,69 +62,63 @@ npx --yes @redocly/cli@2.45.0 lint docs/openapi.yaml
 
 ## Backend Security
 
-Konfiguration: [`.github/workflows/backend-security.yml`](../.github/workflows/backend-security.yml)
+Configuration: [`.github/workflows/backend-security.yml`](../.github/workflows/backend-security.yml)
 
-Jobbet `Backend dependency audit` använder OWASP Dependency-Check för att analysera
-Maven-beroenden mot National Vulnerability Database. Säkerhetsjobbet misslyckas när ett beroende
-får CVSS 7 eller högre. Den schemalagda veckokörningen gör att nya sårbarheter kan upptäckas även om
-beroendefilerna inte har ändrats.
+The `Backend dependency audit` job uses OWASP Dependency-Check to analyze Maven dependencies
+against the National Vulnerability Database. The job fails when a dependency scores CVSS 7 or
+higher. The weekly scheduled run means new vulnerabilities are detected even when the dependency
+files have not changed.
 
-Dependency-Check körs med tester avstängda eftersom backendens tester redan hanteras av
-`Backend verification`. En HTML-rapport laddas upp som en GitHub Actions-artifact och behålls i
-sju dagar:
+The job invokes the Dependency-Check goals directly and does not run the test suite, which is
+already covered by `Backend verification`. An HTML report is uploaded as a GitHub Actions
+artifact and kept for seven days:
 
 ```text
 backend/target/dependency-check-report.html
 ```
 
-### NVD API-nyckel
+### NVD API key
 
-Arbetsflödet läser följande GitHub Actions repository secret:
+The workflow reads the GitHub Actions repository secret `NVD_API_KEY`. OWASP Dependency-Check
+uses the key for calls to the National Vulnerability Database; it is never
+stored in version control. If the key is missing, the job fails at the `Verify NVD API key` step.
 
-```text
-NVD_API_KEY
-```
+A free key can be requested from the
+[National Vulnerability Database](https://nvd.nist.gov/developers/request-an-api-key). Add it as a
+repository secret under **Settings > Secrets and variables > Actions** in GitHub, named exactly
+`NVD_API_KEY`.
 
-Nyckeln används av OWASP Dependency-Check för anrop till National Vulnerability Database och
-lagras inte i versionshanteringen. Arbetsflödet avbryts om nyckeln saknas.
+The NVD data cache is keyed by ISO week. If no compatible cache exists, the database is seeded
+from the Dependency-Check project's data feed before being updated against the NVD API with the
+repository's `NVD_API_KEY`. The update and the dependency analysis run as separate steps, so a
+fully updated database can be cached even if the analysis then finds a vulnerability and fails the
+build. The cache version follows Dependency-Check's major version and must be changed on an
+incompatible upgrade.
 
-En kostnadsfri nyckel kan begäras via
-[National Vulnerability Database](https://nvd.nist.gov/developers/request-an-api-key). Lägg till
-den som en repository secret under **Settings > Secrets and variables > Actions** i GitHub. Namnet
-ska vara exakt `NVD_API_KEY`.
+### Execution context
 
-NVD-data cachelagras veckovis. Om ingen kompatibel cache finns initieras databasen från
-Dependency-Check-projektets datafeed innan den uppdateras mot NVD API med repositoryts
-`NVD_API_KEY`. Uppdateringen och själva beroendeanalysen körs som separata steg, vilket gör att en
-färdiguppdaterad databas kan cachelagras även om analysen därefter hittar en sårbarhet och stoppar
-bygget. Cacheversionen följer Dependency-Checks huvudversion och ska ändras vid en
-inkompatibel uppgradering.
+The workflow is designed for branches in the same GitHub repository. GitHub does not pass
+repository secrets to runs from forks or Dependabot, so such runs fail at the
+`Verify NVD API key` step. The workflow does not use `pull_request_target`.
 
-### Exekveringskontext
+## Least privilege and supply chain
 
-Teamets arbetsflöde använder branches i samma GitHub-repository. GitHub lämnar inte ut repository
-secrets till körningar från forks eller Dependabot; sådana körningar stoppas därför när
-`NVD_API_KEY` verifieras. Arbetsflödet använder inte `pull_request_target`.
+Both workflows have only `contents: read`. The checkout step uses `persist-credentials: false`,
+which prevents the GitHub token from being stored in the local Git configuration after checkout.
 
-## Minsta behörighet och leveranskedja
+Every GitHub Action is pinned to a full commit SHA. The release version is noted in a comment next
+to each SHA so the version choice can be reviewed.
 
-Båda arbetsflödena har endast `contents: read`. Checkout-steget använder
-`persist-credentials: false`, vilket förhindrar att GitHub-tokenet sparas i den lokala
-Git-konfigurationen efter checkout.
-
-Varje GitHub Action anges med ett fullständigt commit-SHA-värde. Releaseversionen står i en
-kommentar vid respektive SHA för att göra versionsvalet granskningsbart.
-
-Maven Wrapper låser Maven-versionen och verifierar den nedladdade distributionen med SHA-256.
-Version och checksumma finns i `backend/.mvn/wrapper/maven-wrapper.properties`.
+The Maven Wrapper pins the Maven version and verifies the downloaded distribution with SHA-256.
+The version and checksum are in `backend/.mvn/wrapper/maven-wrapper.properties`.
 
 ## Status checks
 
-Arbetsflödena publicerar följande status checks:
+The workflows publish the following status checks:
 
 - `Backend verification`
 - `OpenAPI lint`
 - `Backend dependency audit`
 
-Kontrollerna redovisar backendverifiering, API-kontrakt och beroenderisker separat i varje pull
-request mot `main`.
+Together they report backend verification, the API contract and dependency risk separately on
+every pull request to `main`.

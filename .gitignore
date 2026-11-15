@@ -47,7 +47,7 @@ build/
 coverage/
 *.local
 
-# AI-verktyg
+# AI tools
 .claude/
 CLAUDE.md
 .cursor/

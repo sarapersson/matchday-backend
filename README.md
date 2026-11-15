@@ -1,138 +1,157 @@
-# Matchday
+# Matchday Backend
 
-Matchday är en social webbapplikation med matcher i Allsvenskan som utgångspunkt. Projektet
-innehåller en Spring Boot-backend, en Next.js-frontend samt automatiserade kvalitets- och
-säkerhetskontroller.
+REST API for a social app built around matches in Allsvenskan, the Swedish top football league.
+Matches are imported from TheSportsDB, and each match can have a discussion group (a *circle*)
+that users join, leave and post messages in.
 
-Backend stöder manuell import och uppdatering av matchdata från TheSportsDB, ett publikt API för
-matcher som har sparats i PostgreSQL samt ett API där en autentiserad användare med en
-applikationsidentitet kan skapa, läsa, ansluta till och lämna en diskussionsgrupp (`circle`) för
-en match. Aktiva circle-medlemmar kan också skicka meddelanden och läsa meddelandehistoriken.
+> Project assignment for part 2 of the DevSecOps with Security Specialization course (Swedish
+> higher vocational education, YH) at NBI/Handelsakademin. It was built as a team project, and
+> this repository contains the parts I built: match import, circles, memberships and messages.
+> Authentication is represented by a fail-closed identity contract and a local demo adapter, so
+> the API can be run and tested on its own.
 
-## Teknik
+## Highlights
 
-| Område | Teknik |
+- **Feature slices end to end.** Each feature is built through every layer (API, application
+  logic, domain and persistence) together with tests and OpenAPI documentation. Each feature was
+  developed in small commits and merged as one pull request; the individual commits are visible
+  in the
+  [merged pull requests](https://github.com/sarapersson/matchday-backend/pulls?q=is%3Apr+is%3Amerged).
+- **Fail-closed authorization.** Business logic depends on a `CurrentUser` contract. Without a
+  real identity adapter every protected request is rejected; a local demo adapter is available
+  only under the `local` profile, which binds the server to `127.0.0.1`.
+- **Safe under concurrent requests.** Database constraints, transactions and row locking ensure
+  that a match never gets two circles, and that once a user has left a circle, a concurrent
+  request from that user can no longer post or read messages. Concurrency tests run competing
+  operations and then check what was actually stored.
+- **No data leakage.** API responses identify users only by their public username, never by
+  internal user ID or email address, and never include provider IDs or configuration. Application
+  errors are returned as RFC 9457 Problem Details without stack traces; requests rejected by the
+  security filter chain get a plain `401` or `403`.
+- **Shift-left pipeline.** GitHub Actions runs the test suite, formatting checks, a 70% line
+  coverage gate, OpenAPI linting and OWASP Dependency-Check (fails on CVSS ≥ 7). Actions are
+  pinned to commit SHAs and run with read-only permissions.
+
+## Tech stack
+
+| Area | Technology |
 | --- | --- |
-| Backend | Java 25, Spring Boot 4.1.1, Maven |
-| Databas | PostgreSQL 18, Flyway |
-| Frontend | Next.js, TypeScript, Tailwind CSS |
-| Testning | JUnit, Spring Boot Test, Testcontainers, JaCoCo |
-| CI och säkerhet | GitHub Actions, Redocly CLI, OWASP Dependency-Check |
+| Language and framework | Java 25, Spring Boot 4.1, Spring Security, Maven Wrapper |
+| Database | PostgreSQL 18, Flyway, Spring Data JPA |
+| Testing | JUnit 6, AssertJ, MockMvc, Testcontainers, JaCoCo |
+| Quality and security | Spotless (Google Java Format), Redocly CLI, OWASP Dependency-Check |
+| CI | GitHub Actions |
 
-## Backendarkitektur
+## Architecture
 
-Backend använder en feature-baserad paketstruktur med separata lager för API, applikationslogik,
-domän och infrastruktur. PostgreSQL är primär datakälla. TheSportsDB-integrationen implementerar
-det interna gränssnittet `MatchDataProvider`, vilket håller leverantörens datamodell utanför
-domänmodellen och det publika API-kontraktet.
-
-Stödet för circles och meddelanden följer samma struktur. Gränssnittet `CurrentUser` skiljer
-applikationslogiken från den ännu ofärdiga autentiseringsintegrationen. `UserDirectory` hämtar
-publika användarnamn till meddelandesvar utan att exponera internt användar-ID eller e-postadress.
-
-## Projektstruktur
+The code is organized by feature (`match`, `circle`, `message`), supported by the `identity` and
+`security` packages. The feature packages share the same layers:
 
 ```text
-matchday/
-├── .github/workflows/    CI- och säkerhetskontroller
-├── backend/              Spring Boot-applikation
-├── docs/                 API- och processdokumentation
-├── frontend/             Next.js-applikation
-├── compose.yaml          PostgreSQL för lokal utveckling
-└── README.md
+HTTP request
+  -> api             transport validation, DTO mapping, Problem Details
+  -> application     use cases, identity and authorization rules
+  -> domain          business rules and value invariants
+  -> infrastructure  JPA/PostgreSQL adapters, TheSportsDB client
 ```
 
-## Lokal utveckling
+The API layer never exposes JPA entities or domain objects. The application layer depends only on
+interfaces such as `CircleRepository`, `MessageRepository`, `MatchDataProvider`, `CurrentUser` and
+`UserDirectory`, which the infrastructure layer implements. This keeps TheSportsDB's data model out
+of the domain and lets the authentication solution be replaced without touching business logic.
 
-### Förutsättningar
-
-- JDK 25
-- Docker med Docker Compose
-- Git
-- Node.js 24 för att köra OpenAPI-kontrollen lokalt
-
-Maven behöver inte installeras separat eftersom projektet innehåller Maven Wrapper.
-
-### Starta backend
-
-```bash
-git clone https://github.com/Fredalfsson/matchday.git
-cd matchday/backend
-./mvnw spring-boot:run
-```
-
-I Windows PowerShell används `.\mvnw.cmd spring-boot:run` i stället för `./mvnw`.
-
-Spring Boot använder `compose.yaml` i projektroten för att starta PostgreSQL och stoppar tjänsten
-när backendprocessen avslutas.
-
-PostgreSQL använder lokala standardvärden för databas, användare, lösenord och port. Värdena kan
-ersättas med miljövariablerna `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` och
-`POSTGRES_PORT`. Databasinnehållet sparas i Docker-volymen `matchday_postgres_data`.
-
-Låt terminalen vara öppen medan backend körs. När loggen visar att applikationen har startat,
-öppna en ny terminal och kontrollera den publika matchlistan:
-
-```bash
-curl --fail-with-body http://127.0.0.1:8080/api/v1/matches
-```
-
-Svaret är `[]` om databasen ännu inte innehåller några matcher. Fortsätt då med avsnittet
-[Manuell matchimport lokalt](#manuell-matchimport-lokalt).
+Flyway owns the schema. Where an authorization check belongs to a read or write, both happen in one
+transaction with row locking or a single atomic query, so the result cannot change between the
+check and the operation.
 
 ## API
 
-| Metod och sökväg | Åtkomst | Beskrivning |
+| Method and path | Access | Description |
 | --- | --- | --- |
-| `GET /api/v1/matches` | Publik | Returnerar sparade matcher |
-| `GET /api/v1/matches/{matchId}/circle` | Autentiserad med applikationsidentitet | Returnerar matchens circle och användarens medlemsstatus |
-| `POST /api/v1/matches/{matchId}/circle` | Autentiserad med applikationsidentitet | Skapar matchens circle och aktiverar skaparens medlemskap |
-| `PUT /api/v1/matches/{matchId}/circle/membership` | Autentiserad med applikationsidentitet | Aktiverar användarens medlemskap idempotent |
-| `DELETE /api/v1/matches/{matchId}/circle/membership` | Autentiserad med applikationsidentitet | Avslutar användarens medlemskap idempotent |
-| `GET /api/v1/circles/{circleId}/messages?page=0&size=50` | Aktiv circle-medlem med applikationsidentitet | Returnerar paginerad meddelandehistorik |
-| `POST /api/v1/circles/{circleId}/messages` | Aktiv circle-medlem med applikationsidentitet | Skapar ett meddelande i circle |
-| `POST /api/v1/admin/match-imports` | Rollen `MATCH_IMPORTER` | Importerar eller uppdaterar angiven säsong |
+| `GET /api/v1/matches` | Public | List stored matches |
+| `GET /api/v1/matches/{matchId}/circle` | Authenticated | Get the match's circle and the caller's membership status |
+| `POST /api/v1/matches/{matchId}/circle` | Authenticated | Create the circle; the creator becomes a member in the same transaction |
+| `PUT /api/v1/matches/{matchId}/circle/membership` | Authenticated | Join the circle (idempotent) |
+| `DELETE /api/v1/matches/{matchId}/circle/membership` | Authenticated | Leave the circle (idempotent) |
+| `GET /api/v1/circles/{circleId}/messages?page=0&size=50` | Active member | Paginated message history, newest first |
+| `POST /api/v1/circles/{circleId}/messages` | Active member | Post a message |
+| `POST /api/v1/admin/match-imports` | Role `MATCH_IMPORTER` | Import or refresh a season |
 
-Matchlistan sorteras efter säsong, omgång, datum, avsparkstid och internt match-id. Frontend
-ansvarar för filtrering och uppdelning mellan kommande och spelade matcher.
+Matches are sorted by season, round, date, kickoff time and internal ID; filtering into upcoming
+and played matches is left to the client. The full contract is in
+[`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.1).
 
-API-kontraktet finns i [`docs/openapi.yaml`](docs/openapi.yaml) och följer OpenAPI 3.1.0.
+### Rules worth knowing
 
-### Circle- och meddelandestöd i nuvarande backend
+- A match has zero or one circle. Creating one that already exists returns `409 Conflict`; when
+  create requests compete, exactly one gets `201 Created`.
+- Joining and leaving are idempotent and return `204 No Content`. Leaving keeps the circle, other
+  memberships and earlier messages.
+- Only `content` is read from a new message; author and timestamp fields sent by the client are
+  ignored, and the server sets them. Content is trimmed and must be 1–1000 Unicode characters
+  with no null characters.
+- Message history is returned newest first in a stable order, with page sizes from 1 to 100
+  (default `page=0&size=50`).
+- A user who has left a circle gets `403 Forbidden` on both reading and posting messages.
+- Match imports tolerate empty or incomplete rounds and never delete stored data, so an import can
+  be re-run to fill in or update matches as the schedule is published. If the provider returns a
+  match for the wrong season or round, a duplicate external ID or more than eight matches in a
+  round, the whole import is rejected before anything is stored.
+- TheSportsDB rate limits (`429` with `Retry-After`) are respected. Provider failures return
+  sanitized Problem Details: `502 Bad Gateway` for invalid provider data and
+  `503 Service Unavailable` when a provider request fails or the rate limit does not clear in time.
 
-- En match kan ha noll eller en circle.
-- Circle skapas först när en autentiserad användare med en tillgänglig applikationsidentitet
-  startar diskussionen.
-- Skaparen blir medlem i samma transaktion som circle skapas.
-- Circle kan läsas av en autentiserad användare. Svaret visar om den aktuella användaren har ett
-  aktivt medlemskap utan att skapa eller ändra medlemskap.
-- En autentiserad användare kan ansluta till en befintlig circle. Upprepade anrop är idempotenta
-  och svarar med `204 No Content` utan att skapa dubbla medlemskap.
-- En autentiserad användare, inklusive skaparen, kan lämna en circle. Upprepade anrop är
-  idempotenta och svarar med `204 No Content`. Circle och övriga medlemskap ligger kvar.
-- API-svaren exponerar circle-ID, match-ID, skapandetid och medlemsstatus, men inte internt
-  användar-ID eller e-postadress.
-- Samtidiga skapandeförsök skyddas av databasens unika villkor. Ett anrop får `201 Created` och
-  övriga får `409 Conflict`.
-- Endast aktiva medlemmar kan skicka meddelanden. Svaret visar författarens publika användarnamn,
-  men inte internt användar-ID eller e-postadress.
-- Meddelandeinnehåll normaliseras genom att omgivande blanksteg tas bort. Innehållet måste vara
-  1–1000 Unicode-tecken och får inte innehålla null-tecken.
-- Endast aktiva medlemmar kan läsa meddelandehistoriken. Meddelanden returneras nyast först med
-  stabil sortering och sidstorlek mellan 1 och 100. Standardsidan är `page=0&size=50`.
-- Historiken visar författarnas publika användarnamn, men inte interna användar-ID:n eller
-  e-postadresser. Sparade meddelanden ligger kvar när en medlem lämnar.
+## Behavior examples
 
-Produktionskonfigurationen är fail-closed tills auth-modulen tillhandahåller `CurrentUser` och
-`UserDirectory`. För lokal demonstration kopplar profilen `local` Basic Auth-användaren till ett
-uttryckligen konfigurerat användar-ID och publikt användarnamn. Demo-adaptern är endast aktiv med
-den lokala profilen och servern är då bunden till `127.0.0.1`.
+The scenarios below drove development and are verified by descriptively named JUnit tests at
+domain, application, persistence and API levels.
 
-## Manuell matchimport lokalt
+```gherkin
+Given a match exists and the user's application identity can be resolved
+When the user creates the match's circle
+Then at most one circle exists for the match
+And the creator has an active membership created in the same transaction
+```
 
-Profilen `local` konfigurerar Basic Auth med rollen `MATCH_IMPORTER` och binder servern till
-`127.0.0.1`. Stoppa en redan startad backendprocess och starta backend med lokala
-inloggningsuppgifter:
+```gherkin
+Given the user has left the circle
+When the user tries to post or read messages
+Then access is denied with 403 Forbidden
+And no message is stored or exposed
+```
+
+Further cases cover empty, oversized and disallowed content, unknown or malformed IDs, missing
+identity (`401`), invalid pagination, missing request bodies, malformed JSON, attempts to set the
+author from the client (ignored), and a user leaving while messages are being posted or read.
+
+## Running locally
+
+Prerequisites: JDK 25 and Docker with Docker Compose. Maven is provided by the wrapper.
+
+```bash
+git clone https://github.com/sarapersson/matchday-backend.git
+cd matchday-backend/backend
+./mvnw spring-boot:run
+```
+
+The examples use bash syntax. On Windows PowerShell, use `.\mvnw.cmd` instead of `./mvnw` and set
+environment variables with `$env:NAME = "value"`.
+
+Spring Boot starts PostgreSQL from `compose.yaml` automatically. Database settings can be
+overridden with `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_PORT`.
+
+Keep the backend running and check the public match list from another terminal:
+
+```bash
+curl --fail-with-body http://127.0.0.1:8080/api/v1/matches   # [] until matches are imported
+```
+
+### Local demo profile
+
+The default configuration rejects every protected request because no production identity
+adapter is included. To try the protected endpoints, stop the running backend (Ctrl+C) and start
+it again from `backend/` with the `local` profile, which enables Basic Auth mapped to a configured
+demo identity and binds the server to `127.0.0.1`:
 
 ```bash
 SPRING_PROFILES_ACTIVE=local \
@@ -143,146 +162,77 @@ MATCHDAY_LOCAL_PUBLIC_USERNAME=sara \
 ./mvnw spring-boot:run
 ```
 
-Kör importen från en annan terminal. `curl` frågar efter lösenordet för `local-operator`:
+Import a season from another terminal. `curl` prompts for the password on each call, and the
+import can take more than a minute because 30 rounds are fetched sequentially, about two seconds
+apart. TheSportsDB is called with its public test key `123`; set `THESPORTSDB_API_KEY` to use
+another.
 
 ```bash
-curl --fail-with-body \
-  --user local-operator \
+curl --fail-with-body --user local-operator \
   --header 'Content-Type: application/json' \
   --data '{"season": 2026}' \
   http://127.0.0.1:8080/api/v1/admin/match-imports
 ```
 
-Importen hämtar 30 omgångar sekventiellt och kan ta över en minut. `curl` visar inget medan
-anropet pågår utan skriver svaret först när importen är klar. Om TheSportsDB svarar med `429 Too
-Many Requests` väntar backend enligt `Retry-After` innan den försöker igen, vilket kan förlänga
-körtiden. Återförsök och eventuella fel visas i terminalen där backend körs. API:t svarar med ett
-sanerat problem detail: `502 Bad Gateway` när providern returnerar ogiltiga matchdata och `503
-Service Unavailable` när providern inte kan nås. Interna providerfel och konfigurationsdetaljer
-exponeras inte i svaret.
-
-Alla 240 matcher finns inte nödvändigtvis hos providern när säsongens spelschema börjar
-fastställas. Importen sparar därför de matcher som finns och kan köras igen för att fylla på nya
-matcher eller uppdatera redan lagrade matcher. Tomma och ofullständiga omgångar är tillåtna och
-raderar aldrig befintliga data. Backend avvisar däremot matcher för fel säsong eller omgång,
-duplicerade externa match-ID:n och fler än åtta matcher i samma omgång.
-
-Integrationen använder TheSportsDB v1 och standardnyckeln `123`. En annan nyckel anges med
-miljövariabeln `THESPORTSDB_API_KEY`.
-
-## Manuell demonstration av circles och meddelanden
-
-Starta backend med profilen och miljövariablerna ovan och importera matcher. Hämta därefter ett
-match-ID:
+Then create a circle and post a message (the commands below use `jq`):
 
 ```bash
-MATCH_ID=$(curl --fail-with-body --silent \
-  http://127.0.0.1:8080/api/v1/matches | jq -r '.[0].id')
-```
+MATCH_ID=$(curl -s http://127.0.0.1:8080/api/v1/matches | jq -r '.[0].id')
 
-Använd samma Basic Auth-uppgifter i Postman eller `curl` för att skapa en circle:
-
-```bash
-curl --fail-with-body \
-  --user local-operator \
-  --request POST \
+curl --fail-with-body --user local-operator --request POST \
   http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle
-```
 
-Hämta circle-ID:t som behövs för meddelandeanropen:
-
-```bash
-CIRCLE_ID=$(curl --fail-with-body --silent \
-  --user local-operator \
+CIRCLE_ID=$(curl -s --user local-operator \
   http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle | jq -r '.id')
-```
 
-Skapa och läs meddelanden med:
-
-```bash
-curl --fail-with-body \
-  --user local-operator \
+curl --fail-with-body --user local-operator \
   --header 'Content-Type: application/json' \
-  --data '{"content":"Hej från Postman"}' \
-  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
-
-curl --fail-with-body \
-  --user local-operator \
+  --data '{"content":"Hello from the demo"}' \
   http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
 ```
 
-Lämna circle, verifiera att ett nytt meddelande nekas och anslut sedan igen:
+A Postman collection that runs the circle and message flow, including leaving, denied access and
+rejoining, is in [`docs/postman/`](docs/postman/). Import a season first. Select the
+`Matchday Local Demo` environment and set the **Current value** of `password` to the value of
+`MATCHDAY_LOCAL_PASSWORD`; the other variables assume the usernames from the example above
+(`local-operator` and `sara`).
+
+The demo profile is for local use only and is not a substitute for real authentication.
+
+## Verification
+
+From `backend/`:
 
 ```bash
-curl --fail-with-body \
-  --user local-operator \
-  --request DELETE \
-  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle/membership
-
-curl --include \
-  --user local-operator \
-  --header 'Content-Type: application/json' \
-  --data '{"content":"Detta ska nekas"}' \
-  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
-
-curl --fail-with-body \
-  --user local-operator \
-  --request PUT \
-  http://127.0.0.1:8080/api/v1/matches/$MATCH_ID/circle/membership
-
-curl --fail-with-body \
-  --user local-operator \
-  http://127.0.0.1:8080/api/v1/circles/$CIRCLE_ID/messages
-```
-
-POST-anropet efter att användaren har lämnat gruppen ska ge `403 Forbidden`. Det avslutande
-GET-anropet visar att meddelandehistoriken finns kvar efter återanslutningen.
-
-Den lokala adaptern ersätter inte den slutliga autentiseringsintegrationen och ska inte aktiveras
-i en delad eller produktionslik miljö.
-
-### Postman
-
-Importera följande två filer i Postman:
-
-- [`docs/postman/matchday-local-demo.postman_collection.json`](docs/postman/matchday-local-demo.postman_collection.json)
-- [`docs/postman/matchday-local-demo.postman_environment.json`](docs/postman/matchday-local-demo.postman_environment.json)
-
-Välj miljön `Matchday Local Demo` och ange samma värde som används för
-`MATCHDAY_LOCAL_PASSWORD` som **Current value** för variabeln `password`. Öppna samlingen, välj
-**Run collection** och kontrollera att miljön `Matchday Local Demo` är vald innan körningen
-startas.
-
-Postman-samlingen kör 12 anrop i ordning. Den väljer en importerad match, skapar eller återanvänder
-dess circle och verifierar skapande och läsning av meddelanden, medlemskapskontroll,
-återanslutning och nekad åtkomst. En lyckad körning visar att samtliga kontroller är godkända.
-Postman-flödet är en reserv för den manuella demonstrationen och ingår inte i projektets
-automatiserade CI-kontroller.
-
-## Verifiering
-
-Kör backendens lokala kvalitetskontroller med:
-
-```bash
-cd backend
 ./mvnw --batch-mode --no-transfer-progress verify
 ```
 
-Kommandot kör tester, kontrollerar kodformat, genererar en JaCoCo-rapport, verifierar minst 70
-procent linjetäckning och bygger applikationen. GitHub Actions kör samma backendverifiering och
-separata kontroller för OpenAPI-kontraktet och Maven-beroenden.
-
-Kör samma OpenAPI-kontroll som CI från projektets rotkatalog med:
+This runs unit, integration (Testcontainers), API and concurrency tests, checks formatting,
+enforces at least 70% line coverage and packages the application. To lint the API contract, run
+this from the repository root (requires Node.js):
 
 ```bash
-REDOCLY_TELEMETRY=off \
-REDOCLY_SUPPRESS_UPDATE_NOTICE=true \
 npx --yes @redocly/cli@2.45.0 lint docs/openapi.yaml
 ```
 
-## Dokumentation
+See [`docs/BACKEND_CI.md`](docs/BACKEND_CI.md) for how the CI and security workflows are set up.
 
-- [OpenAPI-kontrakt](docs/openapi.yaml)
-- [Backend CI och säkerhetskontroller](docs/BACKEND_CI.md)
-- [Backendens projektberättelse](docs/BACKEND_PROJECT_STORY.md)
-- [Frontend](frontend/README.md)
+## Documentation
+
+- [API contract](docs/openapi.yaml) (OpenAPI 3.1)
+- [CI and security checks](docs/BACKEND_CI.md)
+- [Postman demo collection](docs/postman/)
+
+## Known limitations
+
+- No production authentication adapter is included; the default configuration is fail-closed.
+- Rate limiting for the application's own endpoints is not implemented.
+- Full user deletion (right to erasure) is not implemented.
+- Deployment and monitoring were out of scope for the course assignment.
+
+## Use of AI
+
+AI assistance was used for exploring alternatives, test ideas, code review, refactoring and
+documentation drafts. Suggestions were treated as proposals, not proof: changes were read,
+checked against the architecture and verified through automated tests, quality gates and manual
+demos.
