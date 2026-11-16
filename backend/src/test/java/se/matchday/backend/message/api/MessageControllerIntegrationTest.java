@@ -372,12 +372,12 @@ class MessageControllerIntegrationTest {
                     .with(user(MEMBER_USERNAME))
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"content\":\"  Första raden\\nAndra raden  \"}"))
+                    .content("{\"content\":\"  Opening line\\nSecond line  \"}"))
             .andExpect(status().isCreated())
             .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.id").isNotEmpty())
             .andExpect(jsonPath("$.circleId").value(circle.id().toString()))
-            .andExpect(jsonPath("$.content").value("Första raden\nAndra raden"))
+            .andExpect(jsonPath("$.content").value("Opening line\nSecond line"))
             .andExpect(jsonPath("$.authorUsername").value("sara"))
             .andExpect(jsonPath("$.createdAt").isNotEmpty())
             .andExpect(jsonPath("$.authorUserId").doesNotExist())
@@ -395,7 +395,7 @@ class MessageControllerIntegrationTest {
                 Integer.class,
                 circle.id(),
                 MEMBER_USER_ID,
-                "Första raden\nAndra raden"))
+                "Opening line\nSecond line"))
         .isOne();
   }
 
@@ -410,7 +410,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isUnauthorized());
 
@@ -429,7 +429,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isUnauthorized())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -455,7 +455,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -573,7 +573,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isForbidden())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -602,7 +602,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isNotFound())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -692,7 +692,7 @@ class MessageControllerIntegrationTest {
                 .with(user(MEMBER_USERNAME))
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"content\":\"Hej\\u0000\"}"))
+                .content("{\"content\":\"Hey\\u0000\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.type").value("urn:matchday:problem:invalid-message-content"))
@@ -707,7 +707,7 @@ class MessageControllerIntegrationTest {
   @Test
   void createsDistinctMessagesForRepeatedRequests() throws Exception {
     Circle circle = storeCircleWithCreator(MEMBER_USER_ID);
-    String requestBody = "{\"content\":\"Samma innehåll\"}";
+    String requestBody = "{\"content\":\"Duplicate text\"}";
 
     String firstLocation =
         mockMvc
@@ -751,7 +751,7 @@ class MessageControllerIntegrationTest {
                 .content(
                     """
                     {
-                      "content":"Hej",
+                      "content":"Hey",
                       "authorUserId":"99999999-9999-9999-9999-999999999999",
                       "authorUsername":"attacker",
                       "createdAt":"2000-01-01T00:00:00Z"
@@ -784,7 +784,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isServiceUnavailable())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -809,7 +809,7 @@ class MessageControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
-                    {"content":"Hej"}
+                    {"content":"Hey"}
                     """))
         .andExpect(status().isForbidden());
 
